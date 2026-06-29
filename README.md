@@ -1,61 +1,107 @@
-# Robot-Framework V3
+# Sletteproces – Personaleindsigt
 
-This repo is meant to be used as a template for robots made for [OpenOrchestrator](https://github.com/itk-dev-rpa/OpenOrchestrator).
+Automatiseret oprydnings- og anonymiseringsrobot for afsluttede aktindsigtssager i
+personalemapper. Robotten identificerer sager, hvis opbevaringsperiode er udløbet,
+sletter de tilhørende data i SharePoint og GetOrganized (GO), markerer sletningen i
+databasen og anonymiserer efterfølgende sager, der er fuldt slettet i begge systemer.
 
-## Quick start
+Procesnavn i OpenOrchestrator: `PersonaleIndsigtSletteprocess`
 
-1. To use this template simply use this repo as a template (see [Creating a repository from a template](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template)).
-__Don't__ include all branches.
+---
 
-2. Go to `robot_framework/__main__.py` and choose between the linear framework or queue based framework.
+## Hvad robotten gør
 
-3. Implement all functions in the files:
-    * `robot_framework/initialize.py`
-    * `robot_framework/reset.py`
-    * `robot_framework/process.py`
+Kørslen behandler sager i databasen `AKTINDSIGTERPERSONALEMAPPER` i tre trin:
 
-4. Change `config.py` to your needs.
+1. **Identificér udløbne sager.** Finder afsluttede sager, hvor seneste fuldførte
+   gennemløb (`last_run_complete`) ligger mere end opbevaringsgrænsen tilbage i tid
+   (aktuelt 31 dage), og som endnu ikke er markeret slettet i både SharePoint og GO.
+2. **Slet data.** For hver udløben sag slettes SharePoint-mappen (rekursivt, inkl.
+   filer og undermapper) og GO-sagen via REST-API'et. Hver vellykket sletning
+   markeres i databasen (`slettet_sharepoint = 1`, `slettet_go = 1`).
+3. **Anonymisér.** Sager, der er slettet i både SharePoint og GO, kan herefter
+   anonymiseres — persondata i `dbo.cases` og `dbo.case_journal_items` overskrives
+   med teksten `ANONYMISERET`, og sagens status sættes til `ANONYMISERET`.
 
-5. Fill out the dependencies in the `pyproject.toml` file with all packages needed by the robot.
+Hvis ingen sager opfylder kriterierne, afslutter robotten uden ændringer.
 
-6. Feel free to add more files as needed. Remember that any additional python files must
-be located in the folder `robot_framework` or a subfolder of it.
+---
 
-When the robot is run from OpenOrchestrator the `main.py` file is run which results
-in the following:
-1. The working directory is changed to where `main.py` is located.
-2. A virtual environment is automatically setup with the required packages.
-3. The framework is called passing on all arguments needed by [OpenOrchestrator](https://github.com/itk-dev-rpa/OpenOrchestrator).
+## Arkitektur og flow
 
-## Requirements
-Minimum python version 3.10
+```
+process()
+│
+├─ Opret DB-forbindelse (pyodbc, Trusted_Connection, autocommit = False)
+│
+├─ tjek_case(cur)                  → dict af udløbne sager (nøgle = aktid)
+│
+└─ for hver udløben sag:
+   ├─ delete_sharepoint_folder()   → sletter mappe rekursivt + marker_slettet_sharepoint()
+   ├─ delete_case_go()             → sletter GO-sag + marker_slettet_go()
+   └─ conn.commit()                → gemmer markeringerne for sagen
+```
 
-## Flow
+Sletningerne sker mod eksterne systemer (SharePoint via `office365-rest-python-client`,
+GO via NTLM-autentificeret REST), mens markeringer og anonymisering skrives til
+SQL Server. Da forbindelsen kører med `autocommit = False`, skal databaseændringer
+committes eksplicit, før de er permanente.
 
-This framework contains two different flows: A linear and a queue based.
-You should only ever use one at a time. You choose which one by going into `robot_framework/__main__.py`
-and uncommenting the framework you want. They are both disabled by default and an error will be
-raised to remind you if you don't choose.
+---
 
-### Linear Flow
+## Afhængigheder
 
-The linear framework is used when a robot is just going from A to Z without fetching jobs from an
-OpenOrchestrator queue.
-The flow of the linear framework is sketched up in the following illustration:
+- `OpenOrchestrator` – proceskørsel, constants og credentials
+- `pyodbc` – forbindelse til SQL Server (FDW-/sagsdatabasen)
+- `office365-rest-python-client` – SharePoint-adgang (certifikatbaseret auth)
+- `requests` + `requests_ntlm` – NTLM-autentificerede kald mod GO's REST-API
 
-![Linear Flow diagram](Robot-Framework.svg)
+---
 
-### Queue Flow
+## Konfiguration i OpenOrchestrator
 
-The queue framework is used when the robot is doing multiple bite-sized tasks defined in an
-OpenOrchestrator queue.
-The flow of the queue framework is sketched up in the following illustration:
+### Constants
 
-![Queue Flow diagram](Robot-Queue-Framework.svg)
+| Navn | Beskrivelse |
+|------|-------------|
+| `SqlServer` | Servernavn for SQL Server-forbindelsen |
+| `GOApiURL` | Base-URL for GetOrganized REST-API'et |
+| `PersonaleIndsigtSharepointUrl` | URL til SharePoint-sitet med personaleindsigtsmapper |
 
-## Linting and Github Actions
+### Credentials
 
-This template is also setup with flake8 and pylint linting in Github Actions.
-This workflow will trigger whenever you push your code to Github.
-The workflow is defined under `.github/workflows/Linting.yml`.
+| Navn | username | password |
+|------|----------|----------|
+| `GOAktApiUser` | GO API-bruger | GO API-adgangskode (NTLM) |
+| `SharePointAPI` | tenant | client_id |
+| `SharePointCert` | certifikat-thumbprint | sti til certifikat |
 
+SharePoint-autentificering sker certifikatbaseret via `with_client_certificate`.
+
+
+
+## Funktionsoversigt
+
+| Funktion | Ansvar |
+|----------|--------|
+| `tjek_case(cur)` | Finder udløbne, afsluttede sager og returnerer dem som dict nøglet på `aktid` |
+| `delete_sharepoint_folder(...)` | Sletter en SharePoint-mappe rekursivt og markerer sagen slettet i SharePoint |
+| `delete_case_go(...)` | Sletter en GO-sag via REST-API og markerer sagen slettet i GO |
+| `marker_slettet_sharepoint(cur, aktid)` | Sætter `slettet_sharepoint = 1` for en sag |
+| `marker_slettet_go(cur, aktid)` | Sætter `slettet_go = 1` for en sag |
+| `tjek_anonym(cur)` | Sætter `status = 'ANONYMISERET'` for sager slettet i både SharePoint og GO |
+| `anonymiser_sag(cur, aktid)` | Overskriver persondata i `dbo.cases` og `dbo.case_journal_items` |
+| `sharepoint_client(...)` | Opretter en autentificeret SharePoint `ClientContext` |
+| `create_ntlm_session(...)` | Opretter en NTLM-autentificeret `requests.Session` til GO |
+| `process(orchestrator_connection)` | Indgangspunkt der orkestrerer hele kørslen |
+
+---
+
+
+
+## Opbevaringsgrænse
+
+Udløbsgrænsen beregnes i `tjek_case` som `dags dato − 31 dage`. En sag regnes som
+udløben, når `last_run_complete` ligger før denne grænse. Sager uden
+`last_run_complete` (NULL) springes over. Justér antallet af dage i `tjek_case`,
+hvis opbevaringspolitikken ændres.
