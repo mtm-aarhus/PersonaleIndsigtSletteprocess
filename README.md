@@ -5,7 +5,7 @@ personalemapper. Robotten identificerer sager, hvis opbevaringsperiode er udløb
 sletter de tilhørende data i SharePoint og GetOrganized (GO), markerer sletningen i
 databasen og anonymiserer efterfølgende sager, der er fuldt slettet i begge systemer.
 
-Procesnavn i OpenOrchestrator: `PersonaleIndsigtSletteprocess`
+Procesnavn i OpenOrchestrator: `PersonalemappeAktindsigtSletteprocess`
 
 ---
 
