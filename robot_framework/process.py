@@ -14,6 +14,7 @@ def tjek_case(cur):
         SELECT aktid,
             Udleveringsmappelink,
             Dokumentlistemappelink,
+            sharepoint_udleveringslink,
             last_run_complete,
             handler_email
         FROM dbo.cases
@@ -40,6 +41,7 @@ def tjek_case(cur):
             cases_expired[aktid] = {
                 "Udleveringsmappelink": element["Udleveringsmappelink"],
                 "Dokumentlistemappelink": element["Dokumentlistemappelink"],
+                "Sharepointmappelink": element["sharepoint_udleveringslink"],
                 "aktid": aktid,
                 "handler_email": element['handler_email']
             }
@@ -227,14 +229,20 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
     
         for case in expired_cases.values():
             #sharepoint deleter
-            folder_path = case['Dokumentlistemappelink'].rsplit('.com')[-1]
+            folder_path_dokumentliste = case['Dokumentlistemappelink'].rsplit('.com')[-1]
+            folder_path_udlevering = case['Sharepointmappelink'].rsplit('.com')[-1]
             aktid = case['aktid']
             orchestrator_connection.log_info(f'Deleting {aktid}')
             try:
-                delete_sharepoint_folder(folder_path = folder_path, ctx = ctx, orchestrator_connection= orchestrator_connection, aktid = aktid, cursor = cur)
+                delete_sharepoint_folder(folder_path = folder_path_dokumentliste, ctx = ctx, orchestrator_connection= orchestrator_connection, aktid = aktid, cursor = cur)
                 orchestrator_connection.log_info(f'Deleted sharepoint folder for case {case["aktid"]}')
             except:
-                orchestrator_connection.log_info(f'Delete error in sharepoint for case {aktid}')
+                orchestrator_connection.log_info(f'Delete error in dokumentliste sharepoint for case {aktid}')
+
+            try:
+                delete_sharepoint_folder(folder_path = folder_path_udlevering, ctx = ctx, orchestrator_connection= orchestrator_connection, aktid = aktid, cursor = cur)
+            except:
+                orchestrator_connection.log_info(f'Delete error in udlevering sharepoint for case {aktid}')
 
             #Go deleter
             session = create_ntlm_session(username = go_user, password= go_password)
