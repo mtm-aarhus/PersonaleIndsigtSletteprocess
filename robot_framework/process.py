@@ -230,7 +230,6 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
         for case in expired_cases.values():
             #sharepoint deleter
             folder_path_dokumentliste = case['Dokumentlistemappelink'].rsplit('.com')[-1]
-            folder_path_udlevering = case['Sharepointmappelink'].rsplit('.com')[-1]
             aktid = case['aktid']
             orchestrator_connection.log_info(f'Deleting {aktid}')
             try:
@@ -240,9 +239,10 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
                 orchestrator_connection.log_info(f'Delete error in dokumentliste sharepoint for case {aktid}')
 
             try:
+                folder_path_udlevering = case['Sharepointmappelink'].rsplit('.com')[-1]
                 delete_sharepoint_folder(folder_path = folder_path_udlevering, ctx = ctx, orchestrator_connection= orchestrator_connection, aktid = aktid, cursor = cur)
             except:
-                orchestrator_connection.log_info(f'Delete error in udlevering sharepoint for case {aktid}')
+                orchestrator_connection.log_info(f'Delete error in udlevering sharepoint for case {aktid} {e}')
 
             #Go deleter
             session = create_ntlm_session(username = go_user, password= go_password)
