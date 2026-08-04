@@ -242,7 +242,7 @@ def process(orchestrator_connection: OrchestratorConnection) -> None:
                 folder_path_udlevering = case['Sharepointmappelink'].rsplit('.com')[-1]
                 delete_sharepoint_folder(folder_path = folder_path_udlevering, ctx = ctx, orchestrator_connection= orchestrator_connection, aktid = aktid, cursor = cur)
             except:
-                orchestrator_connection.log_info(f'Delete error in udlevering sharepoint for case {aktid} {e}')
+                orchestrator_connection.log_info(f'Delete error in udlevering sharepoint for case {aktid}')
 
             #Go deleter
             session = create_ntlm_session(username = go_user, password= go_password)
